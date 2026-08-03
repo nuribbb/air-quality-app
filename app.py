@@ -4,10 +4,8 @@ import numpy as np
 import matplotlib.pyplot as plt
 
 from sklearn.ensemble import RandomForestRegressor
-from sklearn.model_selection import train_test_split
-from sklearn.metrics import mean_absolute_error, r2_score
+from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
 
-from datetime import timedelta
 import os
 import warnings
 
@@ -15,7 +13,7 @@ warnings.filterwarnings("ignore")
 
 
 # ============================================================
-# PAGE SETTINGS
+# PAGE CONFIGURATION
 # ============================================================
 
 st.set_page_config(
@@ -24,229 +22,20 @@ st.set_page_config(
     layout="wide"
 )
 
+
+# ============================================================
+# TITLE
+# ============================================================
+
 st.title("🌍 Air Quality Prediction & Early Warning System")
-st.markdown("**Author:** Nurikamal Bolatbay")
-st.markdown("---")
+st.caption("Author: Nurikamal Bolatbay")
 
 
 # ============================================================
-# FILE PATHS
+# FILE
 # ============================================================
 
-ALMATY_FILE = "air_quality_data.csv"
-GLOBAL_FILE = "Global_City_Air_Quality_Hourly.csv"
-
-
-# ============================================================
-# SAFE FILE READER
-# ============================================================
-
-def read_file(filename):
-
-    if not os.path.exists(filename):
-        return None
-
-    # Try normal CSV
-    separators = [",", ";", "\t"]
-
-    for sep in separators:
-        try:
-            df = pd.read_csv(
-                filename,
-                sep=sep,
-                encoding="utf-8",
-                on_bad_lines="skip"
-            )
-
-            if df.shape[1] >= 2:
-                return df
-
-        except Exception:
-            pass
-
-    # Try latin-1 as backup
-    for sep in separators:
-        try:
-            df = pd.read_csv(
-                filename,
-                sep=sep,
-                encoding="latin1",
-                on_bad_lines="skip"
-            )
-
-            if df.shape[1] >= 2:
-                return df
-
-        except Exception:
-            pass
-
-    return None
-
-
-# ============================================================
-# FIND COLUMN
-# ============================================================
-
-def find_column(df, possible_names):
-
-    columns_lower = {
-        str(c).strip().lower(): c
-        for c in df.columns
-    }
-
-    # Exact match
-    for name in possible_names:
-        if name.lower() in columns_lower:
-            return columns_lower[name.lower()]
-
-    # Partial match
-    for c in df.columns:
-
-        c_lower = str(c).strip().lower()
-
-        for name in possible_names:
-            if name.lower() in c_lower:
-                return c
-
-    return None
-
-
-# ============================================================
-# STANDARDIZE DATASET
-# ============================================================
-
-def standardize_dataset(df, forced_city=None):
-
-    if df is None or df.empty:
-        return pd.DataFrame()
-
-    df = df.copy()
-
-    # Remove completely empty columns
-    df = df.dropna(axis=1, how="all")
-
-    # Clean column names
-    df.columns = [
-        str(c).strip()
-        for c in df.columns
-    ]
-
-    # -------------------------
-    # TIME COLUMN
-    # -------------------------
-
-    time_col = find_column(
-        df,
-        [
-            "time",
-            "datetime",
-            "date",
-            "timestamp",
-            "last_updated"
-        ]
-    )
-
-    if time_col is None:
-
-        # Try first column
-        possible = pd.to_datetime(
-            df.iloc[:, 0],
-            errors="coerce"
-        )
-
-        if possible.notna().sum() > len(df) * 0.5:
-            time_col = df.columns[0]
-
-    if time_col is None:
-        return pd.DataFrame()
-
-    df["time"] = pd.to_datetime(
-        df[time_col],
-        errors="coerce",
-        utc=True
-    )
-
-    # Remove timezone
-    try:
-        df["time"] = df["time"].dt.tz_localize(None)
-    except Exception:
-        pass
-
-    # -------------------------
-    # PM2.5 COLUMN
-    # -------------------------
-
-    pm_col = find_column(
-        df,
-        [
-            "pm2.5",
-            "pm25",
-            "pm2_5",
-            "pm_2_5",
-            "pm 2.5",
-            "pm2"
-        ]
-    )
-
-    if pm_col is None:
-        return pd.DataFrame()
-
-    df["pm25"] = pd.to_numeric(
-        df[pm_col],
-        errors="coerce"
-    )
-
-    # -------------------------
-    # CITY COLUMN
-    # -------------------------
-
-    city_col = find_column(
-        df,
-        [
-            "city",
-            "location",
-            "place",
-            "site"
-        ]
-    )
-
-    if forced_city is not None:
-
-        df["city"] = forced_city
-
-    elif city_col is not None:
-
-        df["city"] = (
-            df[city_col]
-            .astype(str)
-            .str.strip()
-        )
-
-    else:
-
-        df["city"] = "Unknown"
-
-    # -------------------------
-    # CLEAN
-    # -------------------------
-
-    df = df[
-        ["time", "city", "pm25"]
-    ].copy()
-
-    df = df.dropna(
-        subset=["time", "pm25"]
-    )
-
-    # Remove impossible PM2.5 values
-    df = df[
-        (df["pm25"] >= 0) &
-        (df["pm25"] <= 1000)
-    ]
-
-    df = df.sort_values("time")
-
-    return df
+DATA_FILE = "Global_City_Air_Quality_Hourly.csv"
 
 
 # ============================================================
@@ -254,216 +43,283 @@ def standardize_dataset(df, forced_city=None):
 # ============================================================
 
 @st.cache_data
-def load_all_data():
+def load_data():
 
-    datasets = []
+    if not os.path.exists(DATA_FILE):
+        return None, f"File '{DATA_FILE}' was not found."
 
-    # -------------------------
-    # ALMATY
-    # -------------------------
+    try:
 
-    almaty = read_file(ALMATY_FILE)
+        df = pd.read_csv(DATA_FILE)
 
-    if almaty is not None:
-
-        almaty = standardize_dataset(
-            almaty,
-            forced_city="Almaty"
+        # Remove spaces from column names
+        df.columns = (
+            df.columns
+            .astype(str)
+            .str.strip()
+            .str.lower()
         )
 
-        if not almaty.empty:
-            datasets.append(almaty)
+        return df, None
 
-    # -------------------------
-    # GLOBAL DATA
-    # -------------------------
+    except Exception as e:
 
-    global_data = read_file(GLOBAL_FILE)
+        return None, str(e)
 
-    if global_data is not None:
 
-        global_data = standardize_dataset(
-            global_data
-        )
+df, error = load_data()
 
-        if not global_data.empty:
-            datasets.append(global_data)
 
-    # -------------------------
-    # COMBINE
-    # -------------------------
+if error:
 
-    if not datasets:
-        return pd.DataFrame()
+    st.error("❌ Data could not be loaded.")
+    st.code(error)
 
-    final_df = pd.concat(
-        datasets,
-        ignore_index=True
+    st.info(
+        "Please make sure Global_City_Air_Quality_Hourly.csv "
+        "is located in the same folder as app.py."
     )
 
-    final_df = final_df.drop_duplicates(
-        subset=["time", "city", "pm25"]
+    st.stop()
+
+
+# ============================================================
+# BASIC DATA CLEANING
+# ============================================================
+
+# Find datetime column automatically
+datetime_candidates = [
+    "datetime",
+    "date",
+    "timestamp",
+    "time"
+]
+
+datetime_col = None
+
+for col in datetime_candidates:
+
+    if col in df.columns:
+        datetime_col = col
+        break
+
+
+if datetime_col is None:
+
+    st.error(
+        "❌ No datetime column was found in the dataset."
     )
 
-    return final_df
+    st.write("Available columns:")
+    st.write(list(df.columns))
+
+    st.stop()
 
 
-df_full = load_all_data()
+df[datetime_col] = pd.to_datetime(
+    df[datetime_col],
+    errors="coerce"
+)
+
+
+# Remove invalid dates
+df = df.dropna(subset=[datetime_col])
+
+
+# ============================================================
+# FIND PM2.5 COLUMN
+# ============================================================
+
+pm25_candidates = [
+    "pm2.5",
+    "pm25",
+    "pm_2_5",
+    "pm2_5"
+]
+
+pm25_col = None
+
+for col in pm25_candidates:
+
+    if col in df.columns:
+        pm25_col = col
+        break
+
+
+if pm25_col is None:
+
+    st.error("❌ PM2.5 column was not found.")
+
+    st.write("Available columns:")
+    st.write(list(df.columns))
+
+    st.stop()
+
+
+# Convert PM2.5 to numeric
+df[pm25_col] = pd.to_numeric(
+    df[pm25_col],
+    errors="coerce"
+)
+
+
+# Remove invalid PM2.5 values
+df = df.dropna(subset=[pm25_col])
+
+
+# ============================================================
+# REMOVE ALMATY COMPLETELY
+# ============================================================
+
+if "location" in df.columns:
+
+    df = df[
+        ~df["location"]
+        .astype(str)
+        .str.lower()
+        .str.contains("almaty", na=False)
+    ]
+
+
+# ============================================================
+# SORT DATA
+# ============================================================
+
+df = df.sort_values(datetime_col).reset_index(drop=True)
 
 
 # ============================================================
 # CHECK DATA
 # ============================================================
 
-if df_full.empty:
+if len(df) < 100:
 
     st.error(
-        "❌ Не удалось загрузить данные."
+        "❌ Not enough real observations for modelling."
     )
 
-    st.info(
-        "Проверь, что рядом с app.py находятся "
-        "air_quality_data.csv и/или "
-        "Global_City_Air_Quality_Hourly.csv."
+    st.write(
+        f"Number of available observations: {len(df)}"
     )
 
     st.stop()
-
-
-# ============================================================
-# DATASET INFORMATION
-# ============================================================
-
-st.sidebar.header("📁 Dataset")
-
-st.sidebar.success(
-    f"Loaded records: {len(df_full):,}"
-)
-
-st.sidebar.write(
-    f"Cities: {df_full['city'].nunique()}"
-)
 
 
 # ============================================================
 # CITY SELECTION
 # ============================================================
 
-st.sidebar.header("📍 Select City")
+if "location" in df.columns:
 
-cities = sorted(
-    df_full["city"]
-    .dropna()
-    .unique()
-)
-
-if "Almaty" in cities:
-
-    cities.remove("Almaty")
-    cities.insert(0, "Almaty")
-
-
-selected_city = st.sidebar.selectbox(
-    "City:",
-    cities
-)
-
-
-# ============================================================
-# CITY DATA
-# ============================================================
-
-df_city = df_full[
-    df_full["city"] == selected_city
-].copy()
-
-df_city = df_city.sort_values("time")
-
-
-# ============================================================
-# CHECK RECORD COUNT
-# ============================================================
-
-if len(df_city) < 50:
-
-    st.error(
-        f"❌ Недостаточно данных для {selected_city}."
+    cities = sorted(
+        df["location"]
+        .dropna()
+        .astype(str)
+        .unique()
+        .tolist()
     )
 
-    st.write(
-        f"Available records: {len(df_city)}"
+    if len(cities) == 0:
+
+        st.error("❌ No cities were found in the dataset.")
+        st.stop()
+
+    selected_city = st.selectbox(
+        "🌆 Select a megacity",
+        cities
+    )
+
+    city_df = df[
+        df["location"].astype(str) == selected_city
+    ].copy()
+
+else:
+
+    selected_city = "All available data"
+    city_df = df.copy()
+
+
+# ============================================================
+# CITY DATA CHECK
+# ============================================================
+
+if len(city_df) < 50:
+
+    st.warning(
+        "⚠️ This city does not contain enough observations "
+        "for reliable prediction."
     )
 
     st.stop()
 
 
 # ============================================================
-# DATA PREPARATION
+# FEATURE ENGINEERING
 # ============================================================
 
-df_city["hour"] = (
-    df_city["time"].dt.hour
-)
+city_df = city_df.sort_values(datetime_col).copy()
 
-df_city["dayofweek"] = (
-    df_city["time"].dt.dayofweek
-)
 
-df_city["month"] = (
-    df_city["time"].dt.month
-)
+# Time features
+city_df["hour"] = city_df[datetime_col].dt.hour
 
-df_city["day"] = (
-    df_city["time"].dt.day
-)
+city_df["day"] = city_df[datetime_col].dt.day
+
+city_df["dayofweek"] = city_df[datetime_col].dt.dayofweek
+
+city_df["month"] = city_df[datetime_col].dt.month
+
+
+# Historical PM2.5 features
+city_df["pm25_lag_1"] = city_df[pm25_col].shift(1)
+
+city_df["pm25_lag_3"] = city_df[pm25_col].shift(3)
+
+city_df["pm25_lag_6"] = city_df[pm25_col].shift(6)
+
+city_df["pm25_lag_12"] = city_df[pm25_col].shift(12)
+
+city_df["pm25_lag_24"] = city_df[pm25_col].shift(24)
 
 
 # ============================================================
-# LAG FEATURES
+# OPTIONAL WEATHER FEATURES
 # ============================================================
 
-lag_values = [
-    1,
-    3,
-    6,
-    12,
-    24
+possible_weather_features = [
+    "temperature",
+    "temperature_c",
+    "relativehumidity",
+    "relative_humidity",
+    "humidity",
+    "wind_speed",
+    "windspeed"
 ]
 
-for lag in lag_values:
 
-    df_city[
-        f"pm25_lag_{lag}"
-    ] = df_city["pm25"].shift(lag)
+weather_features = []
 
+for col in possible_weather_features:
 
-# Remove missing lag rows
-df_model = df_city.dropna().copy()
+    if col in city_df.columns:
 
+        city_df[col] = pd.to_numeric(
+            city_df[col],
+            errors="coerce"
+        )
 
-# ============================================================
-# CHECK MODEL DATA
-# ============================================================
-
-if len(df_model) < 50:
-
-    st.error(
-        f"❌ После создания временных признаков "
-        f"осталось только {len(df_model)} записей."
-    )
-
-    st.stop()
+        weather_features.append(col)
 
 
 # ============================================================
-# FEATURES
+# MODEL FEATURES
 # ============================================================
 
-features = [
+feature_columns = [
     "hour",
+    "day",
     "dayofweek",
     "month",
-    "day",
     "pm25_lag_1",
     "pm25_lag_3",
     "pm25_lag_6",
@@ -472,20 +328,91 @@ features = [
 ]
 
 
-X = df_model[features]
-y = df_model["pm25"]
+# Add available real weather data
+for col in weather_features:
+
+    if col not in feature_columns:
+
+        feature_columns.append(col)
+
+
+# Keep only existing columns
+feature_columns = [
+    col for col in feature_columns
+    if col in city_df.columns
+]
+
+
+# ============================================================
+# PREPARE MODEL DATA
+# ============================================================
+
+model_df = city_df[
+    feature_columns + [pm25_col]
+].copy()
+
+
+# Convert everything to numeric
+for col in feature_columns:
+
+    model_df[col] = pd.to_numeric(
+        model_df[col],
+        errors="coerce"
+    )
+
+
+model_df[pm25_col] = pd.to_numeric(
+    model_df[pm25_col],
+    errors="coerce"
+)
+
+
+# Remove missing values
+model_df = model_df.dropna()
+
+
+# ============================================================
+# MODEL CHECK
+# ============================================================
+
+if len(model_df) < 100:
+
+    st.error(
+        "❌ Not enough complete historical observations "
+        "for this city."
+    )
+
+    st.write(
+        f"Complete observations available: {len(model_df)}"
+    )
+
+    st.stop()
 
 
 # ============================================================
 # TRAIN / TEST SPLIT
 # ============================================================
 
-X_train, X_test, y_train, y_test = train_test_split(
-    X,
-    y,
-    test_size=0.2,
-    random_state=42
+# Chronological split is used because this is time-series data.
+
+split_index = int(
+    len(model_df) * 0.8
 )
+
+
+train_df = model_df.iloc[:split_index]
+
+test_df = model_df.iloc[split_index:]
+
+
+X_train = train_df[feature_columns]
+
+y_train = train_df[pm25_col]
+
+
+X_test = test_df[feature_columns]
+
+y_test = test_df[pm25_col]
 
 
 # ============================================================
@@ -499,31 +426,24 @@ model = RandomForestRegressor(
 )
 
 
-with st.spinner(
-    f"Training model for {selected_city}..."
-):
-
-    model.fit(
-        X_train,
-        y_train
-    )
+model.fit(
+    X_train,
+    y_train
+)
 
 
 # ============================================================
-# PREDICTION
+# PREDICTIONS
 # ============================================================
 
-y_pred = model.predict(X_test)
+y_pred = model.predict(
+    X_test
+)
 
 
 # ============================================================
 # METRICS
 # ============================================================
-
-r2 = r2_score(
-    y_test,
-    y_pred
-)
 
 mae = mean_absolute_error(
     y_test,
@@ -531,368 +451,160 @@ mae = mean_absolute_error(
 )
 
 
+rmse = np.sqrt(
+    mean_squared_error(
+        y_test,
+        y_pred
+    )
+)
+
+
+r2 = r2_score(
+    y_test,
+    y_pred
+)
+
+
 # ============================================================
-# MAIN METRICS
+# DASHBOARD
 # ============================================================
 
 st.subheader(
-    f"📊 {selected_city}"
+    f"📊 Air Quality Analysis — {selected_city}"
 )
 
-c1, c2, c3 = st.columns(3)
 
-with c1:
-    st.metric(
-        "R² Score",
-        f"{r2:.4f}"
-    )
+# ============================================================
+# METRIC CARDS
+# ============================================================
 
-with c2:
-    st.metric(
-        "MAE",
-        f"{mae:.2f} µg/m³"
-    )
+col1, col2, col3, col4 = st.columns(4)
 
-with c3:
+
+with col1:
+
     st.metric(
         "Records",
-        f"{len(df_city):,}"
+        f"{len(city_df):,}"
     )
 
 
-st.caption(
-    f"Data period: "
-    f"{df_city['time'].min().strftime('%Y-%m-%d')} "
-    f"→ "
-    f"{df_city['time'].max().strftime('%Y-%m-%d')}"
-)
-
-
-# ============================================================
-# FORECAST FUNCTION
-# ============================================================
-
-def forecast_future(
-    model,
-    df,
-    features,
-    hours_ahead=3
-):
-
-    work = df.copy()
-
-    forecasts = []
-
-    last_time = work["time"].iloc[-1]
-
-    # Last known PM2.5 values
-    pm_values = list(
-        work["pm25"].iloc[-24:].values
-    )
-
-    for step in range(
-        1,
-        hours_ahead + 1
-    ):
-
-        future_time = (
-            last_time
-            + timedelta(hours=step)
-        )
-
-        row = {
-            "hour": future_time.hour,
-            "dayofweek": future_time.weekday(),
-            "month": future_time.month,
-            "day": future_time.day
-        }
-
-        # Lag 1
-        row["pm25_lag_1"] = (
-            pm_values[-1]
-        )
-
-        # Lag 3
-        row["pm25_lag_3"] = (
-            pm_values[-3]
-            if len(pm_values) >= 3
-            else pm_values[-1]
-        )
-
-        # Lag 6
-        row["pm25_lag_6"] = (
-            pm_values[-6]
-            if len(pm_values) >= 6
-            else pm_values[-1]
-        )
-
-        # Lag 12
-        row["pm25_lag_12"] = (
-            pm_values[-12]
-            if len(pm_values) >= 12
-            else pm_values[-1]
-        )
-
-        # Lag 24
-        row["pm25_lag_24"] = (
-            pm_values[-24]
-            if len(pm_values) >= 24
-            else pm_values[-1]
-        )
-
-        X_future = pd.DataFrame(
-            [row]
-        )[features]
-
-        prediction = model.predict(
-            X_future
-        )[0]
-
-        # PM2.5 cannot be negative
-        prediction = max(
-            0,
-            float(prediction)
-        )
-
-        forecasts.append(
-            prediction
-        )
-
-        pm_values.append(
-            prediction
-        )
-
-    return forecasts
-
-
-# ============================================================
-# FORECAST
-# ============================================================
-
-forecast_values = forecast_future(
-    model,
-    df_city,
-    features,
-    hours_ahead=3
-)
-
-
-# ============================================================
-# EARLY WARNING
-# ============================================================
-
-st.markdown("---")
-
-st.header(
-    "⚠️ Early Warning System"
-)
-
-WARNING_THRESHOLD = 50
-
-st.caption(
-    f"Warning threshold: "
-    f"{WARNING_THRESHOLD} µg/m³"
-)
-
-
-last_actual = float(
-    df_city["pm25"].iloc[-1]
-)
-
-last_time = (
-    df_city["time"].iloc[-1]
-)
-
-
-w1, w2, w3, w4 = st.columns(4)
-
-
-with w1:
+with col2:
 
     st.metric(
-        "Current",
-        f"{last_actual:.1f} µg/m³"
+        "MAE",
+        f"{mae:.2f}"
     )
 
 
-warning_triggered = False
+with col3:
 
-
-for i, value in enumerate(
-    forecast_values,
-    start=1
-):
-
-    future_time = (
-        last_time
-        + timedelta(hours=i)
+    st.metric(
+        "RMSE",
+        f"{rmse:.2f}"
     )
 
-    is_warning = (
-        value >= WARNING_THRESHOLD
-    )
 
-    if is_warning:
-        warning_triggered = True
+with col4:
 
-    with [
-        w2,
-        w3,
-        w4
-    ][i - 1]:
-
-        st.metric(
-            f"{'🔴' if is_warning else '🟢'} "
-            f"+{i}h "
-            f"({future_time.strftime('%H:%M')})",
-            f"{value:.1f} µg/m³",
-            delta=f"{value - last_actual:+.1f}"
-        )
-
-
-if warning_triggered:
-
-    st.error(
-        "🚨 WARNING: predicted PM2.5 "
-        "exceeds the selected threshold."
-    )
-
-else:
-
-    st.success(
-        "✅ No warning: predicted PM2.5 "
-        "remains below the threshold."
+    st.metric(
+        "R²",
+        f"{r2:.3f}"
     )
 
 
 # ============================================================
-# FORECAST GRAPH
+# HISTORICAL PM2.5
 # ============================================================
 
-st.markdown("---")
-
-st.header(
-    "📈 PM2.5 Forecast — Next 3 Hours"
+st.subheader(
+    "📈 Historical PM2.5 Concentration"
 )
 
-fig, ax = plt.subplots(
+
+fig1, ax1 = plt.subplots(
     figsize=(12, 5)
 )
 
-history = (
-    df_city["pm25"]
-    .iloc[-24:]
-    .values
+
+ax1.plot(
+    city_df[datetime_col],
+    city_df[pm25_col],
+    linewidth=1
 )
 
-history_x = np.arange(
-    len(history)
+
+ax1.set_xlabel("Date")
+
+ax1.set_ylabel("PM2.5")
+
+ax1.set_title(
+    f"Historical PM2.5 — {selected_city}"
 )
 
-forecast_x = np.arange(
-    len(history),
-    len(history) + len(forecast_values)
-)
 
-ax.plot(
-    history_x,
-    history,
-    label="Historical PM2.5",
-    linewidth=2
-)
-
-ax.plot(
-    forecast_x,
-    forecast_values,
-    "--o",
-    label="Forecast",
-    linewidth=2
-)
-
-ax.axhline(
-    WARNING_THRESHOLD,
-    linestyle=":",
-    linewidth=2,
-    label="Warning threshold"
-)
-
-ax.axvline(
-    len(history) - 1,
-    linestyle="--",
-    linewidth=1,
-    label="Current time"
-)
-
-ax.set_xlabel(
-    "Hourly observations"
-)
-
-ax.set_ylabel(
-    "PM2.5 (µg/m³)"
-)
-
-ax.set_title(
-    f"{selected_city}: PM2.5 Forecast"
-)
-
-ax.legend()
-
-ax.grid(
+ax1.grid(
     alpha=0.3
 )
 
-st.pyplot(
-    fig,
-    clear_figure=True
-)
 
-plt.close(fig)
+fig1.tight_layout()
+
+
+st.pyplot(fig1)
+
+
+plt.close(fig1)
 
 
 # ============================================================
-# MODEL PERFORMANCE
+# ACTUAL VS PREDICTED
 # ============================================================
 
-st.markdown("---")
-
-st.header(
-    "📊 Model Performance"
+st.subheader(
+    "🎯 Actual vs Predicted PM2.5"
 )
+
+
+comparison_df = pd.DataFrame({
+
+    "Date":
+        test_df.index,
+
+    "Actual PM2.5":
+        y_test.values,
+
+    "Predicted PM2.5":
+        y_pred
+
+})
+
 
 fig2, ax2 = plt.subplots(
     figsize=(12, 5)
 )
 
-n = min(
-    150,
-    len(y_test)
-)
 
 ax2.plot(
-    range(n),
-    y_test.iloc[:n].values,
-    label="Actual",
-    linewidth=2
+    comparison_df["Actual PM2.5"],
+    label="Actual"
 )
+
 
 ax2.plot(
-    range(n),
-    y_pred[:n],
-    label="Predicted",
-    linewidth=2
+    comparison_df["Predicted PM2.5"],
+    label="Predicted"
 )
 
-ax2.set_xlabel(
-    "Test observations"
-)
 
-ax2.set_ylabel(
-    "PM2.5 (µg/m³)"
-)
+ax2.set_xlabel("Test observation")
+
+ax2.set_ylabel("PM2.5")
 
 ax2.set_title(
-    f"{selected_city}: Actual vs Predicted"
+    f"Actual vs Predicted PM2.5 — {selected_city}"
 )
+
 
 ax2.legend()
 
@@ -900,10 +612,12 @@ ax2.grid(
     alpha=0.3
 )
 
-st.pyplot(
-    fig2,
-    clear_figure=True
-)
+
+fig2.tight_layout()
+
+
+st.pyplot(fig2)
+
 
 plt.close(fig2)
 
@@ -912,74 +626,187 @@ plt.close(fig2)
 # FEATURE IMPORTANCE
 # ============================================================
 
-st.markdown("---")
-
-st.header(
-    "🔍 Feature Importance"
+st.subheader(
+    "🔎 Feature Importance"
 )
+
 
 importance_df = pd.DataFrame({
-    "Feature": features,
-    "Importance": model.feature_importances_
+
+    "Feature":
+        feature_columns,
+
+    "Importance":
+        model.feature_importances_
+
 })
 
-importance_df = (
-    importance_df
-    .sort_values(
-        "Importance",
-        ascending=True
-    )
+
+importance_df = importance_df.sort_values(
+    "Importance",
+    ascending=False
 )
 
+
 fig3, ax3 = plt.subplots(
-    figsize=(10, 6)
+    figsize=(10, 5)
 )
+
 
 ax3.barh(
     importance_df["Feature"],
     importance_df["Importance"]
 )
 
+
 ax3.set_xlabel(
     "Importance"
 )
 
-ax3.set_ylabel(
-    "Feature"
-)
 
 ax3.set_title(
-    f"{selected_city}: Random Forest Feature Importance"
+    "Random Forest Feature Importance"
 )
 
-ax3.grid(
-    axis="x",
-    alpha=0.3
-)
 
-st.pyplot(
-    fig3,
-    clear_figure=True
-)
+ax3.invert_yaxis()
+
+
+fig3.tight_layout()
+
+
+st.pyplot(fig3)
+
 
 plt.close(fig3)
+
+
+# ============================================================
+# EARLY WARNING
+# ============================================================
+
+st.subheader(
+    "⚠️ Early Warning"
+)
+
+
+latest_pm25 = float(
+    city_df[pm25_col].iloc[-1]
+)
+
+
+# Simple threshold for dashboard warning
+# This is a screening threshold, not a medical recommendation.
+
+if latest_pm25 >= 35:
+
+    st.error(
+        f"High PM2.5 level detected: "
+        f"{latest_pm25:.1f}"
+    )
+
+elif latest_pm25 >= 15:
+
+    st.warning(
+        f"Elevated PM2.5 level: "
+        f"{latest_pm25:.1f}"
+    )
+
+else:
+
+    st.success(
+        f"Current PM2.5 level is relatively low: "
+        f"{latest_pm25:.1f}"
+    )
+
+
+# ============================================================
+# DATASET INFORMATION
+# ============================================================
+
+st.subheader(
+    "📁 Dataset Information"
+)
+
+
+info_col1, info_col2 = st.columns(2)
+
+
+with info_col1:
+
+    st.write(
+        "**Source file:** "
+        "Global_City_Air_Quality_Hourly.csv"
+    )
+
+    st.write(
+        f"**Selected city:** {selected_city}"
+    )
+
+    st.write(
+        f"**Observations:** {len(city_df):,}"
+    )
+
+
+with info_col2:
+
+    start_date = city_df[
+        datetime_col
+    ].min()
+
+
+    end_date = city_df[
+        datetime_col
+    ].max()
+
+
+    st.write(
+        f"**Start:** {start_date}"
+    )
+
+    st.write(
+        f"**End:** {end_date}"
+    )
 
 
 # ============================================================
 # DATA PREVIEW
 # ============================================================
 
-st.markdown("---")
-
 with st.expander(
-    "🔎 View latest measurements"
+    "🔍 View real dataset"
 ):
 
     st.dataframe(
-        df_city[
-            ["time", "city", "pm25"]
-        ].tail(20),
+        city_df.tail(100),
         use_container_width=True
+    )
+
+
+# ============================================================
+# MODEL INFORMATION
+# ============================================================
+
+with st.expander(
+    "🤖 Model information"
+):
+
+    st.write(
+        """
+        The system uses Random Forest Regression to predict
+        PM2.5 concentration.
+
+        No synthetic data are generated.
+
+        The model uses only real observations from the
+        Global_City_Air_Quality_Hourly.csv dataset.
+
+        Historical PM2.5 lag features are used to capture
+        temporal dependencies.
+
+        The data are split chronologically:
+        80% for training and 20% for testing.
+        """
     )
 
 
@@ -990,6 +817,6 @@ with st.expander(
 st.markdown("---")
 
 st.caption(
-    "Air Quality Prediction & Early Warning System "
-    "© 2026 Nurikamal Bolatbay"
+    "Air Quality Prediction & Early Warning System | "
+    "Developed by Nurikamal Bolatbay"
 )
