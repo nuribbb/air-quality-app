@@ -172,13 +172,13 @@ forecast_values = forecast_future(model, df_city, features, hours_ahead=3)
 
 w1, w2, w3, w4 = st.columns(4)
 with w1:
-    st.metric(f"🕐 Current ({last_time.strftime('%H:%M')})", f"{last_actual:.1f} µg/m³")
+    # Removed the exact time display (e.g., 23:00) – only "Current"
+    st.metric("🕐 Current", f"{last_actual:.1f} µg/m³")
 
 warning_triggered = False
 for h, val in enumerate(forecast_values, 1):
     is_warning = val >= WARNING_THRESHOLD
     with [w2, w3, w4][h-1]:
-        # Removed time display; only show +1h, +2h, +3h
         st.metric(
             f"{'🔴' if is_warning else '🟢'} +{h}h",
             f"{val:.1f} µg/m³",
