@@ -178,8 +178,9 @@ warning_triggered = False
 for h, val in enumerate(forecast_values, 1):
     is_warning = val >= WARNING_THRESHOLD
     with [w2, w3, w4][h-1]:
+        # Removed time display; only show +1h, +2h, +3h
         st.metric(
-            f"{'🔴' if is_warning else '🟢'} +{h}h ({ (last_time + timedelta(hours=h)).strftime('%H:%M') })",
+            f"{'🔴' if is_warning else '🟢'} +{h}h",
             f"{val:.1f} µg/m³",
             delta=f"{val - last_actual:+.1f}",
             delta_color="inverse" if is_warning else "normal"
@@ -188,9 +189,14 @@ for h, val in enumerate(forecast_values, 1):
         warning_triggered = True
 
 if warning_triggered:
-    st.error("🚨 WARNING! PM2.5 will exceed 50 µg/m³.")
+    st.error(
+        "🚨 WARNING! PM2.5 levels are predicted to exceed 50 µg/m³ in the next few hours. "
+        "Please take precautions: Wear a mask (N95 recommended), stay indoors, close all windows, "
+        "use an air purifier, avoid outdoor physical activities, keep doors sealed, and monitor vulnerable "
+        "groups (children, elderly, and those with respiratory conditions) closely."
+    )
 else:
-    st.success("✅ NORMAL.")
+    st.success("✅ Air quality is predicted to remain safe. No immediate action required.")
 
 # ============================================================
 # PLOTS
